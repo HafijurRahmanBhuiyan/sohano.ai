@@ -1,0 +1,23 @@
+# Node / Vite
+node_modules/
+dist/
+*.local
+
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+*.db
+
+# Env & secrets
+.env
+.env.*
+
+# Uploads (user content)
+backend/uploads/*
+!backend/uploads/.gitkeep
+
+# Misc
+.DS_Store
+*.log
