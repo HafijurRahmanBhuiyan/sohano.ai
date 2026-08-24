@@ -34,8 +34,14 @@ let caughtTimer: ReturnType<typeof setTimeout> | null = null
 
 function markCaught() {
   useChatStore.setState({ status: 'caught' })
-  if (caughtTimer) clearTimeout(caughtTimer)
-  caughtTimer = setTimeout(() => useChatStore.setState({ status: 'idle' }), 2600)
+
+  if (caughtTimer) {
+    clearTimeout(caughtTimer)
+  }
+
+  caughtTimer = setTimeout(() => {
+    useChatStore.setState({ status: 'idle' })
+  }, 2600)
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
@@ -53,37 +59,87 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   openChat: async (id) => {
     if (get().activeChatId === id) return
-    set({ activeChatId: id, messages: [], streamingText: null, loadingChat: true })
+
+    set({
+      activeChatId: id,
+      messages: [],
+      streamingText: null,
+      loadingChat: true,
+    })
+
     try {
       const chat = await apiGetChat(id)
-      set({ messages: chat.messages, loadingChat: false })
+
+      set({
+        messages: chat.messages,
+        loadingChat: false,
+      })
     } catch {
-      set({ activeChatId: null, loadingChat: false })
+      set({
+        activeChatId: null,
+        messages: [],
+        loadingChat: false,
+      })
     }
   },
 
-  newChat: () => set({ activeChatId: null, messages: [], streamingText: null }),
+  newChat: () => {
+    abortController?.abort()
+    abortController = null
+
+    set({
+      activeChatId: null,
+      messages: [],
+      streamingText: null,
+      status: 'idle',
+      loadingChat: false,
+    })
+  },
 
   deleteChat: async (id) => {
     await apiDeleteChat(id)
+
     const { activeChatId } = get()
-    set((s) => ({ chats: s.chats.filter((c) => c.id !== id) }))
-    if (activeChatId === id) set({ activeChatId: null, messages: [] })
+
+    set((state) => ({
+      chats: state.chats.filter((chat) => chat.id !== id),
+    }))
+
+    if (activeChatId === id) {
+      set({
+        activeChatId: null,
+        messages: [],
+        streamingText: null,
+      })
+    }
   },
 
   renameChat: async (id, title) => {
     const updated = await apiRenameChat(id, title)
-    set((s) => ({ chats: s.chats.map((c) => (c.id === id ? updated : c)) }))
+
+    set((state) => ({
+      chats: state.chats.map((chat) =>
+        chat.id === id ? updated : chat,
+      ),
+    }))
   },
 
   send: async (content, attachments = []) => {
     let chatId = get().activeChatId
+
+    // No active chat: create one first.
     if (!chatId) {
       const chat = await apiCreateChat()
+
       chatId = chat.id
-      set((s) => ({ activeChatId: chatId, chats: [chat, ...s.chats] }))
+
+      set((state) => ({
+        activeChatId: chatId,
+        chats: [chat, ...state.chats],
+      }))
     }
 
+    // Show user's message immediately.
     const optimisticUserMsg: Message = {
       id: `tmp-${Date.now()}`,
       role: 'user',
@@ -91,20 +147,34 @@ export const useChatStore = create<ChatState>((set, get) => ({
       created_at: new Date().toISOString(),
       attachments,
     }
-    set((s) => ({
-      messages: [...s.messages, optimisticUserMsg],
+
+    set((state) => ({
+      messages: [...state.messages, optimisticUserMsg],
       streamingText: '',
       status: 'thinking',
     }))
 
-    await runStream(chatId, { content })
+    // IMPORTANT:
+    // Send the attachments along with the message.
+    await runStream(chatId, {
+      content,
+      attachments,
+    })
   },
 
   regenerate: async () => {
     const chatId = get().activeChatId
+
     if (!chatId) return
-    set({ streamingText: '', status: 'thinking' })
-    await runStream(chatId, { regenerate: true })
+
+    set({
+      streamingText: '',
+      status: 'thinking',
+    })
+
+    await runStream(chatId, {
+      regenerate: true,
+    })
   },
 
   stop: () => {
@@ -113,14 +183,32 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 }))
 
-async function runStream(chatId: string, payload: { content?: string; regenerate?: boolean }) {
+interface RunStreamPayload {
+  content?: string
+  regenerate?: boolean
+  attachments?: Attachment[]
+}
+
+async function runStream(
+  chatId: string,
+  payload: RunStreamPayload,
+) {
   const state = useChatStore.getState()
 
+  // Regenerate: remove trailing assistant message locally.
   if (payload.regenerate) {
-    // drop trailing assistant bubble locally before re-asking
     const msgs = [...state.messages]
-    while (msgs.length && msgs[msgs.length - 1].role === 'assistant') msgs.pop()
-    useChatStore.setState({ messages: msgs })
+
+    while (
+      msgs.length > 0 &&
+      msgs[msgs.length - 1].role === 'assistant'
+    ) {
+      msgs.pop()
+    }
+
+    useChatStore.setState({
+      messages: msgs,
+    })
   }
 
   abortController = new AbortController()
@@ -128,61 +216,114 @@ async function runStream(chatId: string, payload: { content?: string; regenerate
   try {
     await streamChat(
       chatId,
-      payload,
+      {
+        content: payload.content,
+        regenerate: payload.regenerate,
+        attachments: payload.attachments,
+      },
       ({ event, data }) => {
-        const s = useChatStore.getState()
+        const currentState = useChatStore.getState()
+
+        // Gemini streaming chunk.
         if (event === 'delta') {
           useChatStore.setState({
-            streamingText: (s.streamingText ?? '') + String(data.text ?? ''),
+            streamingText:
+              (currentState.streamingText ?? '') +
+              String(data.text ?? ''),
           })
-        } else if (event === 'done') {
+
+          return
+        }
+
+        // Backend finished.
+        if (event === 'done') {
           const msg = data.message as Message
-          const titleUpdated = Boolean(data.title_updated) || Boolean(data.title)
+
+          const titleUpdated =
+            Boolean(data.title_updated) ||
+            Boolean(data.title)
+
           useChatStore.setState({
-            messages: [...s.messages, msg],
+            messages: [...currentState.messages, msg],
             streamingText: null,
             status: 'caught',
           })
+
           if (titleUpdated) {
-            useChatStore.setState((st) => ({
-              chats: st.chats.map((c) =>
-                c.id === chatId ? { ...c, title: String(data.title) } : c,
+            useChatStore.setState((current) => ({
+              chats: current.chats.map((chat) =>
+                chat.id === chatId
+                  ? {
+                      ...chat,
+                      title: String(data.title),
+                    }
+                  : chat,
               ),
             }))
           }
+
           markCaught()
-        } else if (event === 'error') {
+
+          return
+        }
+
+        // Backend error.
+        if (event === 'error') {
           useChatStore.setState({
             streamingText:
               String(data.detail ?? '') +
               '\n\nPlease try again in a moment.',
           })
+
+          return
         }
       },
-      )
-    const s = useChatStore.getState()
-    if (s.status === 'thinking') markCaught()
+    )
+
+    const currentState = useChatStore.getState()
+
+    if (currentState.status === 'thinking') {
+      markCaught()
+    }
   } catch (err) {
+    // User pressed Stop.
     if ((err as Error).name === 'AbortError') {
-      // User pressed stop: the backend still finishes and saves — resync shortly.
       setTimeout(() => {
         const id = useChatStore.getState().activeChatId
-        if (id) {
-          apiGetChat(id)
-            .then((c) => useChatStore.setState({ messages: c.messages }))
-            .catch(() => undefined)
-        }
+
+        if (!id) return
+
+        apiGetChat(id)
+          .then((chat) => {
+            useChatStore.setState({
+              messages: chat.messages,
+            })
+          })
+          .catch(() => undefined)
       }, 1200)
-    } else if (!useChatStore.getState().streamingText) {
-      useChatStore.setState({
-        streamingText:
-          "Sorry — Sohano.ai couldn't reach the AI service. Please check your connection and try again.",
-      })
+    } else {
+      const currentState = useChatStore.getState()
+
+      if (!currentState.streamingText) {
+        useChatStore.setState({
+          streamingText:
+            "Sorry — Sohano.ai couldn't reach the AI service. Please check your connection and try again.",
+        })
+      }
     }
+
     markCaught()
   } finally {
-    useChatStore.setState({ streamingText: null })
+    useChatStore.setState({
+      streamingText: null,
+    })
+
     abortController = null
-    useChatStore.getState().loadChats().catch(() => undefined)
+
+    // Refresh sidebar.
+    useChatStore
+      .getState()
+      .loadChats()
+      .catch(() => undefined)
   }
 }
