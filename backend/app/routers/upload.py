@@ -37,7 +37,7 @@ async def upload_files(
             )
 
         stored_name = file_processor.save_upload(file.filename, raw)
-        file_url = f"/files/{stored_name}"
+        file_url = f"{settings.backend_origin}/files/{stored_name}"
 
         if file_processor.is_image(file.filename):
             extracted = await file_processor.describe_image(raw, file.filename)
