@@ -70,7 +70,7 @@ function MouseSvg() {
 
 function Stars() {
   return (
-    <svg className="sohano-stars absolute left-[52px] top-[-2px]" width="26" height="18" viewBox="0 0 26 18" aria-hidden="true">
+    <svg className="sohano-stars absolute left-[155px] top-[-2px]" width="26" height="18" viewBox="0 0 26 18" aria-hidden="true">
       <text x="0" y="14" fontSize="12" fill="#fbbf24">✦</text>
       <text x="12" y="10" fontSize="9" fill="#fb923c">✦</text>
       <text x="19" y="15" fontSize="7" fill="#facc15">✦</text>
@@ -89,7 +89,7 @@ export default function ThinkingIndicator({ status }: { status: ThinkingStatus }
       aria-label={label || 'Sohano.ai'}
       title={label || 'Sohano.ai'}
     >
-      <div className="sohano-shadow" />
+      <div className="sohano-ground" />
       {status === 'caught' && <Stars />}
       <span className="sohano-cat">
         <span className="sohano-cat-inner block">
