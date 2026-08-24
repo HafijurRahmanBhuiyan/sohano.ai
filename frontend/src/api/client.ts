@@ -215,6 +215,7 @@ export interface StreamChatPayload {
   attachments?: Attachment[]
   attachment_ids?: string[]
   regenerate?: boolean
+  model?: string
 }
 
 export async function streamChat(
@@ -254,13 +255,17 @@ export async function streamChat(
     []
 
   /*
-   * Regenerate endpoint doesn't need the normal message body.
+   * Regenerate endpoint only needs the model selection (if any);
+   * the normal endpoint carries the message content too.
    */
   const body = isRegenerate
-    ? {}
+    ? {
+        model: payload.model,
+      }
     : {
         content: payload.content ?? '',
         attachment_ids: attachmentIds,
+        model: payload.model,
       }
 
   const res = await fetch(url, {

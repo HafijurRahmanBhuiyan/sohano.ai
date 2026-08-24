@@ -31,6 +31,27 @@ IMAGE_MIME = {
 }
 
 
+# Models the frontend may select per-request (each has its own free-tier
+# quota, so users can switch when one runs out). Anything else silently
+# falls back to the server-configured default model.
+ALLOWED_MODELS = frozenset(
+    {
+        "gemini-3.6-flash",
+        "gemini-3-flash-preview",
+        "gemini-3.5-flash",
+        "gemini-3.5-flash-lite",
+        "gemini-3.1-flash-lite",
+    }
+)
+
+
+def resolve_model(model: Optional[str]) -> Optional[str]:
+    """Return the requested model if whitelisted, else None (= default)."""
+    if model and model in ALLOWED_MODELS:
+        return model
+    return None
+
+
 class LLMImage:
     """An image attached to a user message (base64-encoded)."""
 
@@ -58,8 +79,13 @@ class BaseLLMProvider(ABC):
     def stream_generate(
         self,
         messages: List[LLMMessage],
+        model: Optional[str] = None,
     ) -> AsyncIterator[str]:
-        """Yield response text chunks asynchronously."""
+        """Yield response text chunks asynchronously.
+
+        ``model`` is an optional per-request override; providers that
+        don't support it simply ignore it.
+        """
         raise NotImplementedError
 
     async def generate_once(self, prompt: str) -> str:
@@ -91,8 +117,10 @@ class AnthropicProvider(BaseLLMProvider):
     async def stream_generate(
         self,
         messages: List[LLMMessage],
+        model: Optional[str] = None,
     ) -> AsyncIterator[str]:
         api_messages: List[Dict[str, object]] = []
+        _ = model  # per-request model selection is Gemini-only for now
 
         for message in messages:
             if not message.content.strip() and not message.images:
@@ -156,8 +184,13 @@ class GeminiProvider(BaseLLMProvider):
     async def stream_generate(
         self,
         messages: List[LLMMessage],
+        model: Optional[str] = None,
     ) -> AsyncIterator[str]:
         from google.genai import types
+
+        # Per-request override (already whitelist-checked upstream);
+        # fall back to the server-configured default.
+        selected_model = resolve_model(model) or self.model
 
         contents: List[types.Content] = []
 
@@ -218,7 +251,7 @@ class GeminiProvider(BaseLLMProvider):
 
         # google-genai async streaming API.
         response = await self.client.aio.models.generate_content(
-            model=self.model,
+            model=selected_model,
             contents=contents,
             config=config,
         )
@@ -244,6 +277,7 @@ class OpenAIProvider(BaseLLMProvider):
     async def stream_generate(
         self,
         messages: List[LLMMessage],
+        model: Optional[str] = None,
     ) -> AsyncIterator[str]:
         api_messages: List[Dict[str, object]] = [
             {
@@ -251,6 +285,7 @@ class OpenAIProvider(BaseLLMProvider):
                 "content": SYSTEM_PROMPT,
             }
         ]
+        _ = model  # per-request model selection is Gemini-only for now
 
         for message in messages:
             parts: List[Dict[str, object]] = []
@@ -313,7 +348,9 @@ class MockProvider(BaseLLMProvider):
     async def stream_generate(
         self,
         messages: List[LLMMessage],
+        model: Optional[str] = None,
     ) -> AsyncIterator[str]:
+        _ = model  # per-request model selection is Gemini-only for now
         last_user = next(
             (
                 message

@@ -51,3 +51,11 @@ class ChatWithMessages(ChatOut):
 class SendMessageRequest(BaseModel):
     content: str = Field(min_length=1, max_length=32000)
     attachment_ids: List[str] = []
+    # Optional model override (e.g. "gemini-3.5-flash"). Invalid or
+    # unknown values silently fall back to the server default.
+    model: Optional[str] = Field(default=None, max_length=100)
+
+
+class RegenerateRequest(BaseModel):
+    # Same optional model override, for the regenerate endpoint.
+    model: Optional[str] = Field(default=None, max_length=100)

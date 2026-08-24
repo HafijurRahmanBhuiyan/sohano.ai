@@ -2,6 +2,7 @@ import { FileText, Image as ImageIcon, Loader2, Plus, SendHorizontal, X } from '
 import { useEffect, useRef, useState } from 'react'
 import { apiUploadFiles } from '../api/client'
 import type { Attachment } from '../api/types'
+import ModelPicker from './ModelPicker'
 
 const ACCEPTED = '.pdf,.docx,.xlsx,.csv,.txt,.png,.jpg,.jpeg,.webp'
 
@@ -81,6 +82,11 @@ export default function Composer({
   return (
     <div className="px-3 md:px-6 pb-4 pt-2">
       <div className="mx-auto max-w-3xl">
+        {/* model selector */}
+        <div className="mb-2">
+          <ModelPicker />
+        </div>
+
         {/* pending files row */}
         {pending.length > 0 && (
           <div className="mb-2 flex flex-wrap gap-2">

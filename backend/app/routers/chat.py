@@ -1,6 +1,6 @@
 import json
 import os
-from typing import AsyncIterator, List
+from typing import AsyncIterator, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -20,10 +20,16 @@ from app.schemas.chat import (
     ChatRename,
     ChatWithMessages,
     MessageOut,
+    RegenerateRequest,
     SendMessageRequest,
 )
 from app.services.file_processor import is_image
-from app.services.llm_service import LLMImage, LLMMessage, encode_image_bytes, get_llm_provider
+from app.services.llm_service import (
+    LLMImage,
+    LLMMessage,
+    encode_image_bytes,
+    get_llm_provider,
+)
 
 router = APIRouter(prefix="/chats", tags=["chats"])
 
@@ -133,9 +139,12 @@ def _build_llm_messages(db: Session, chat: Chat) -> List[LLMMessage]:
     return llm_messages
 
 
-async def _stream_completion(llm_messages: List[LLMMessage]) -> AsyncIterator[str]:
+async def _stream_completion(
+    llm_messages: List[LLMMessage],
+    model: Optional[str] = None,
+) -> AsyncIterator[str]:
     provider = get_llm_provider()
-    async for chunk in provider.stream_generate(llm_messages):
+    async for chunk in provider.stream_generate(llm_messages, model=model):
         yield chunk
 
 
@@ -185,7 +194,7 @@ async def send_message(
                 "meta",
                 {"user_message": MessageOut.model_validate(user_msg).model_dump(mode="json")},
             )
-            async for chunk in _stream_completion(llm_messages):
+            async for chunk in _stream_completion(llm_messages, model=payload.model):
                 if not chunk:
                     continue
                 full_text.append(chunk)
@@ -227,11 +236,13 @@ async def send_message(
 @router.post("/{chat_id}/regenerate")
 async def regenerate(
     chat_id: str,
+    payload: Optional[RegenerateRequest] = None,
     user: User = Depends(rate_limit),
     db: Session = Depends(get_db),
 ) -> StreamingResponse:
     """Delete the last assistant message and re-stream a fresh answer."""
     chat = _get_owned_chat(db, chat_id, user)
+    requested_model = payload.model if payload is not None else None
     last_assistant = (
         db.query(Message)
         .filter(Message.chat_id == chat.id, Message.role == "assistant")
@@ -247,7 +258,7 @@ async def regenerate(
     async def event_stream() -> AsyncIterator[str]:
         full_text: List[str] = []
         try:
-            async for chunk in _stream_completion(llm_messages):
+            async for chunk in _stream_completion(llm_messages, model=requested_model):
                 if not chunk:
                     continue
                 full_text.append(chunk)

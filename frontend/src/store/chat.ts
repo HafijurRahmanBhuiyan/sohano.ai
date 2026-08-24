@@ -8,6 +8,7 @@ import {
   streamChat,
 } from '../api/client'
 import type { Attachment, ChatSummary, Message } from '../api/types'
+import { DEFAULT_MODEL_ID, loadSavedModel, saveModel } from '../config/models'
 
 export type ThinkingStatus = 'idle' | 'thinking' | 'caught'
 
@@ -18,6 +19,7 @@ interface ChatState {
   streamingText: string | null
   status: ThinkingStatus
   loadingChat: boolean
+  selectedModel: string
 
   loadChats: (query?: string) => Promise<void>
   openChat: (id: string) => Promise<void>
@@ -27,6 +29,7 @@ interface ChatState {
   send: (content: string, attachments?: Attachment[]) => Promise<void>
   regenerate: () => Promise<void>
   stop: () => void
+  setSelectedModel: (id: string) => void
 }
 
 let abortController: AbortController | null = null
@@ -51,6 +54,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
   streamingText: null,
   status: 'idle',
   loadingChat: false,
+  selectedModel: loadSavedModel(),
+
+  setSelectedModel: (id) => {
+    saveModel(id)
+    useChatStore.setState({ selectedModel: id })
+  },
 
   loadChats: async (query = '') => {
     const chats = await apiListChats(query)
@@ -159,6 +168,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     await runStream(chatId, {
       content,
       attachments,
+      model: get().selectedModel || DEFAULT_MODEL_ID,
     })
   },
 
@@ -174,6 +184,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     await runStream(chatId, {
       regenerate: true,
+      model: get().selectedModel || DEFAULT_MODEL_ID,
     })
   },
 
@@ -187,6 +198,7 @@ interface RunStreamPayload {
   content?: string
   regenerate?: boolean
   attachments?: Attachment[]
+  model?: string
 }
 
 async function runStream(
@@ -220,6 +232,7 @@ async function runStream(
         content: payload.content,
         regenerate: payload.regenerate,
         attachments: payload.attachments,
+        model: payload.model,
       },
       ({ event, data }) => {
         const currentState = useChatStore.getState()
@@ -269,10 +282,13 @@ async function runStream(
 
         // Backend error.
         if (event === 'error') {
+          const detail = String(data.detail ?? '')
+          const quotaHit = /429|RESOURCE_EXHAUSTED|quota|usage limit/i.test(detail)
+
           useChatStore.setState({
-            streamingText:
-              String(data.detail ?? '') +
-              '\n\nPlease try again in a moment.',
+            streamingText: quotaHit
+              ? 'This model has reached its free usage limit. Pick another model from the selector above the message box and try again.'
+              : detail + '\n\nPlease try again in a moment.',
           })
 
           return
