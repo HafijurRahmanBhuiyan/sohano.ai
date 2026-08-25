@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     frontend_origin: str = "http://localhost:5173"
     backend_origin: str = ""
 
+    supabase_url: str = ""
+    supabase_key: str = ""
+    supabase_bucket: str = "sohano-attachments"
+
     @property
     def cors_origins(self) -> List[str]:
         return [o.strip() for o in self.frontend_origin.split(",") if o.strip()]
