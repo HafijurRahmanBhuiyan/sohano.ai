@@ -83,31 +83,12 @@ async function request<T>(
    AUTH
    ========================================================= */
 
-export const apiSignup = (
-  name: string,
-  email: string,
-  password: string,
-) =>
-  request<{ access_token: string }>('/auth/signup', {
-    method: 'POST',
-    body: JSON.stringify({
-      name,
-      email,
-      password,
-    }),
-  })
+/* =========================================================
+   AUTH — Google OAuth is the only sign-in method.
+   ========================================================= */
 
-export const apiLogin = (
-  email: string,
-  password: string,
-) =>
-  request<{ access_token: string }>('/auth/login', {
-    method: 'POST',
-    body: JSON.stringify({
-      email,
-      password,
-    }),
-  })
+export const apiProviders = () =>
+  request<{ google: boolean }>('/auth/providers')
 
 export const apiMe = () =>
   request<User>('/auth/me')
@@ -121,18 +102,6 @@ export const apiUpdateProfile = (
   request<User>('/auth/me', {
     method: 'PATCH',
     body: JSON.stringify(payload),
-  })
-
-export const apiChangePassword = (
-  current_password: string,
-  new_password: string,
-) =>
-  request<void>('/auth/me/password', {
-    method: 'POST',
-    body: JSON.stringify({
-      current_password,
-      new_password,
-    }),
   })
 
 /* =========================================================

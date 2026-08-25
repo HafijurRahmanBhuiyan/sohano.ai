@@ -35,6 +35,14 @@ class Settings(BaseSettings):
     supabase_key: str = ""
     supabase_bucket: str = "sohano-attachments"
 
+    # --- Google OAuth (the only sign-in method) ---
+    google_client_id: str = ""
+    google_client_secret: str = ""
+
+    @property
+    def primary_frontend_origin(self) -> str:
+        return self.frontend_origin.split(",")[0].strip().rstrip("/")
+
     @property
     def cors_origins(self) -> List[str]:
         return [o.strip() for o in self.frontend_origin.split(",") if o.strip()]

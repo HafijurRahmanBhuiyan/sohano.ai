@@ -25,7 +25,7 @@ A full-stack AI chat assistant powered by **Google Gemini** — ask questions, u
 - 🗄️ **Permanent attachment storage** — every upload goes straight to a Supabase Storage bucket and its public URL is recorded in Postgres, so attachments survive restarts and redeploys
 - 🗂️ **Chat history sidebar** — grouped Today / Yesterday / Previous 7 Days / Previous 30 days, search, rename, delete, collapsible (auto-hides on mobile)
 - 🐱 **Cat vs mouse thinking animation** — `idle → thinking → caught` states driven by real stream events
-- 👤 **Accounts** — signup/login (JWT), profile settings, password change, per-user isolated history
+- 👤 **Google-only accounts** — sign-in happens exclusively through **"Continue with Google"**, so every account is a real, Google-verified Gmail/Workspace address. No passwords, no fake emails, no signup forms. Existing email-matching accounts are linked automatically and keep their history.
 - 🌓 **Dark / light mode**, fully responsive
 - 🛡️ Rate limiting per user per minute, graceful LLM-failure fallbacks, `.env` secrets never exposed to the frontend
 
@@ -76,7 +76,7 @@ sohano/
 cd backend
 python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env          # then set GEMINI_API_KEY, SUPABASE_URL, SUPABASE_KEY
+cp .env.example .env          # then set GEMINI_API_KEY, SUPABASE_URL, SUPABASE_KEY, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
 uvicorn app.main:app --reload --port 8000
 ```
 
@@ -113,6 +113,18 @@ Use the dropdown above the message box to choose any of the bundled free Gemini 
 
 The `/files` static mount in `main.py` still exists purely as a dev convenience for older locally-stored files — all new uploads bypass it entirely.
 
+## Authentication (Google-only)
+
+There are no passwords or signup forms: the **only** way into Sohano.ai is a real Google account.
+
+1. Create OAuth credentials at [Google Cloud credentials](https://console.cloud.google.com/apis/credentials) (OAuth client ID, type *Web application*).
+2. Add authorized redirect URI `{BACKEND_ORIGIN}/auth/google/callback` — locally that is `http://localhost:8000/auth/google/callback`.
+3. Set `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` in `backend/.env` and restart.
+
+Flow: app → `/auth/google` → Google consent → `/auth/google/callback` verifies the account with Google (`email_verified` must be true) → finds or creates the user → issues the app JWT → redirects to the SPA. An existing local account whose address matches the Gmail is marked verified and linked automatically, preserving all chats. Until credentials are configured the login page shows a setup notice and `/auth/google` returns 404.
+
+Existing databases are migrated automatically on startup (`users.is_verified`, `users.auth_provider`).
+
 ## Environment Variables (backend/.env)
 
 | Variable | Default | Description |
@@ -127,6 +139,8 @@ The `/files` static mount in `main.py` still exists purely as a dev convenience 
 | `SUPABASE_URL` | — | **Required.** Supabase project URL |
 | `SUPABASE_KEY` | — | **Required.** Supabase API key (service or anon, must allow Storage writes) |
 | `SUPABASE_BUCKET` | `sohano-attachments` | Public Storage bucket for attachments |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | — | **Required.** Google OAuth credentials (the only sign-in method) |
+| `BACKEND_ORIGIN` | empty | Public URL of the API in production (OAuth redirect); local dev auto-defaults to `http://localhost:8000` |
 | `MAX_UPLOAD_MB` | `25` | Upload size limit |
 | `RATE_LIMIT_PER_MINUTE` | `20` | Requests/min per user on message/upload endpoints |
 | `FRONTEND_ORIGIN` | `http://localhost:5173` | CORS origin(s), comma-separated |

@@ -3,8 +3,8 @@ import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { getInitialTheme } from './components/ThemeToggle'
 import ChatPage from './pages/ChatPage'
 import LoginPage from './pages/LoginPage'
+import OAuthCallbackPage from './pages/OAuthCallbackPage'
 import SettingsPage from './pages/SettingsPage'
-import SignupPage from './pages/SignupPage'
 import { useAuthStore } from './store/auth'
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -40,10 +40,8 @@ export default function App() {
         path="/login"
         element={useAuthStore.getState().user ? <Navigate to="/" replace /> : <LoginPage />}
       />
-      <Route
-        path="/signup"
-        element={useAuthStore.getState().user ? <Navigate to="/" replace /> : <SignupPage />}
-      />
+      <Route path="/signup" element={<Navigate to="/login" replace />} />
+      <Route path="/oauth/callback" element={<OAuthCallbackPage />} />
       <Route
         path="/settings"
         element={

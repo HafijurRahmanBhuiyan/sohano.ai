@@ -10,9 +10,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import pytest
 from fastapi.testclient import TestClient
 
+from app.core.security import create_access_token
 from app.db.base import Base
-from app.db.session import engine
+from app.db.session import SessionLocal, engine
 from app.main import app
+from app.models.user import User
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -30,16 +32,30 @@ def client():
         yield c
 
 
+def _google_user_token(email: str, name: str = "Test User") -> str:
+    """Create (or reuse) a Google-style user directly and mint an app JWT."""
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.email == email).first()
+        if user is None:
+            user = User(
+                name=name,
+                email=email,
+                password_hash="",  # Google-only accounts have no password
+                is_verified=True,
+                auth_provider="google",
+            )
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+        return create_access_token(user.id)
+    finally:
+        db.close()
+
+
 @pytest.fixture()
 def auth_headers(client):
-    client.post(
-        "/auth/signup",
-        json={"name": "Hafij", "email": "hafij@sohano.ai", "password": "supersecret1"},
-    )
-    res = client.post(
-        "/auth/login", json={"email": "hafij@sohano.ai", "password": "supersecret1"}
-    )
-    token = res.json()["access_token"]
+    token = _google_user_token("hafij@sohano.ai", "Hafij")
     return {"Authorization": f"Bearer {token}"}
 
 
@@ -49,35 +65,24 @@ def test_health(client):
     assert res.json()["status"] == "ok"
 
 
-def test_signup_login_me(client):
-    res = client.post(
-        "/auth/signup",
-        json={"name": "Test User", "email": "test@example.com", "password": "password123"},
-    )
-    assert res.status_code == 201
-    assert "access_token" in res.json()
+def test_google_only_auth_surface(client):
+    # Password signup/login endpoints no longer exist.
+    assert client.post("/auth/signup", json={}).status_code != 201
+    assert client.post("/auth/login", json={}).status_code != 200
 
-    # duplicate email rejected
-    res = client.post(
-        "/auth/signup",
-        json={"name": "Test User", "email": "test@example.com", "password": "password123"},
-    )
-    assert res.status_code == 409
+    # Google not configured in tests -> provider disabled + start returns 404.
+    providers = client.get("/auth/providers").json()
+    assert providers == {"google": False}
+    assert client.get("/auth/google").status_code == 404
 
-    res = client.post(
-        "/auth/login", json={"email": "test@example.com", "password": "wrongpass1"}
-    )
-    assert res.status_code == 401
 
-    res = client.post(
-        "/auth/login", json={"email": "test@example.com", "password": "password123"}
-    )
+def test_me_with_google_user(client):
+    token = _google_user_token("me@example.com", "Me")
+    res = client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
     assert res.status_code == 200
-    headers = {"Authorization": f"Bearer {res.json()['access_token']}"}
-
-    me = client.get("/auth/me", headers=headers)
-    assert me.status_code == 200
-    assert me.json()["email"] == "test@example.com"
+    body = res.json()
+    assert body["email"] == "me@example.com"
+    assert body["name"] == "Me"
 
 
 def test_chat_crud_and_streaming(client, auth_headers):
@@ -118,13 +123,7 @@ def test_chat_crud_and_streaming(client, auth_headers):
 
 
 def test_chats_isolated_per_user(client, auth_headers):
-    client.post(
-        "/auth/signup",
-        json={"name": "Other", "email": "other@example.com", "password": "password123"},
-    )
-    other_token = client.post(
-        "/auth/login", json={"email": "other@example.com", "password": "password123"}
-    ).json()["access_token"]
+    other_token = _google_user_token("other@example.com", "Other")
     other_h = {"Authorization": f"Bearer {other_token}"}
     assert client.get("/chats", headers=other_h).json() == []
 
