@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     rate_limit_per_minute: int = 20
 
     frontend_origin: str = "http://localhost:5173"
+    backend_origin: str = ""
 
     @property
     def cors_origins(self) -> List[str]:
